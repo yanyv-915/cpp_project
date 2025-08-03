@@ -1,0 +1,24 @@
+#include<iostream>
+#include<unistd.h>
+#include<arpa/inet.h>
+#include<cstring>
+using namespace std;
+int main(){
+    int client_fd=socket(AF_INET,SOCK_STREAM,0);
+
+    sockaddr_in client_addr{};
+    client_addr.sin_family=AF_INET;
+    client_addr.sin_port=htons(12345);
+    inet_pton(AF_INET, "127.0.0.1", &client_addr.sin_addr);
+
+    connect(client_fd,(sockaddr*)&client_addr,sizeof(client_addr));
+
+    const char* msg="Hello server!";
+    write(client_fd,msg,strlen(msg));
+
+    char buf[1024]={0};
+    read(client_fd,buf,sizeof(buf));
+    cout<<"From server:"<<buf<<endl;
+
+    close(client_fd);
+}
