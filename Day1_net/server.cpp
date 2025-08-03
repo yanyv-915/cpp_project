@@ -7,12 +7,14 @@
 using namespace std;
 
 int main(){
+    //创建 socket          → socket()
     int server_fd=socket(AF_INET,SOCK_STREAM,0);
     if(server_fd<0){
         perror("socket");
         return 1;
     }
     
+    //绑定本地 IP+端口     → bind()
     sockaddr_in server_addr{};
     server_addr.sin_family=AF_INET;
     server_addr.sin_addr.s_addr=INADDR_ANY;
@@ -22,6 +24,7 @@ int main(){
         return 1; 
     }
 
+    //开始监听             → listen()
     if(listen(server_fd,5)<0){
         perror("listen监听失败");
         return 1;
@@ -29,7 +32,7 @@ int main(){
 
     cout<<"服务器启动，等待连接。。。。。。\n";
 
-
+    //等待客户端连接       → accept()
     sockaddr_in client_addr{};
     socklen_t client_len=sizeof(client_addr);
     int client_fd=accept(server_fd,(sockaddr*)&client_addr,&client_len);
@@ -38,6 +41,7 @@ int main(){
         return 1;
     }
 
+    //通信 + 关闭连接      → read()/write()/close()
     char buffer[1024];
     while(true){
         memset(buffer,0,sizeof(buffer));
