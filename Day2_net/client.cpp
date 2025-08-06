@@ -4,7 +4,7 @@
 #include<cstring>
 using namespace std;
 int main(){
-    //创建 socket         → socket()
+    //创建 socket        → socket()
     int client_fd=socket(AF_INET,SOCK_STREAM,0);
 
     //设置服务器地址结构   → sockaddr_in + inet_pton()
