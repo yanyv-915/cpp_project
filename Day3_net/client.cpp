@@ -13,7 +13,7 @@ int main() {
     c_addr.sin_family = AF_INET;
     c_addr.sin_port = htons(12345);  // 主机字节序转网络字节序
 
-    // 将字符串形式的 IP 地址转换为网络字节序的二进制形式
+    // 将字符串形式的 IP 地址转换为网络字节序的二进制形式 
     inet_pton(AF_INET, "127.0.0.1", &c_addr.sin_addr.s_addr);
 
     // 发起连接请求，连接目标服务器
