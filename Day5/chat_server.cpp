@@ -1,127 +1,105 @@
+
 #include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <cstring>
-#include <iostream>
-#include <thread>
-#include <vector>
-#include <atomic>
-#include <mutex>
-#include <cerrno>
-#include<algorithm>
-std::atomic<bool> running(true);
-std::mutex cout_mutex;        // 控制台输出锁
-std::mutex clients_mutex;     // 客户端列表锁
-std::vector<int> clients;     // 所有已连接客户端的 socket
-
-// 广播消息给所有客户端
-void broadcast_message(const std::string &msg, int sender_fd) {
-    std::lock_guard<std::mutex> lock(clients_mutex);
-    for (int fd : clients) {
-        if (fd != sender_fd) { // 不给发送者自己发
-            ssize_t sent = write(fd, msg.c_str(), msg.size());
-            if (sent == -1) {
-                std::lock_guard<std::mutex> lock_cout(cout_mutex);
-                std::cerr << "[ERROR] 向客户端写入失败: "
-                          << strerror(errno) << " (errno=" << errno << ")\n";
-            }
-        }
-    }
+#include <netinet/in.h> 
+#include <sys/socket.h> 
+#include <unistd.h> 
+#include <cstring> 
+#include <iostream> 
+#include <thread> 
+#include <vector> 
+#include <mutex> 
+#include <algorithm> 
+#include <cerrno> 
+#include"ThreadPool.h"
+std::vector<int> clients; 
+std::mutex clients_mutex; 
+void broadcast(const std::string &msg, int sender_fd) 
+{ std::lock_guard<std::mutex> lock(clients_mutex); 
+    for (int client_fd : clients) 
+    { if (client_fd != sender_fd) 
+        { ssize_t ret = write(client_fd, msg.c_str(), msg.size()); 
+            if (ret == -1) { std::cerr << "[ERROR] write失败: " << strerror(errno) << " (errno=" << errno << ")\n"; 
+            } 
+        } 
+    } 
 }
-
-// 处理单个客户端
-void handle_client(int client_fd, sockaddr_in client_addr) {
-    char client_ip[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
-    uint16_t client_port = ntohs(client_addr.sin_port);
-
-    {
-        std::lock_guard<std::mutex> lock(cout_mutex);
-        std::cout << "[INFO] 新客户端连接: " << client_ip << ":" << client_port << std::endl;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(clients_mutex);
-        clients.push_back(client_fd);
-    }
-
+void handle_client(int conn_fd)
+{
     char buffer[1024];
-    while (running) {
-        ssize_t n = read(client_fd, buffer, sizeof(buffer) - 1);
-        if (n > 0) {
+    while (true)
+    {
+        ssize_t n = read(conn_fd, buffer, sizeof(buffer) - 1);
+        if (n > 0)
+        {
             buffer[n] = '\0';
-            std::string msg = "[客户端 " + std::string(client_ip) + ":" + std::to_string(client_port) + "] " + buffer;
-
-            // 在服务器控制台显示
-            {
-                std::lock_guard<std::mutex> lock(cout_mutex);
-                std::cout << msg << std::endl;
-            }
-
-            // 广播给其他客户端
-            broadcast_message(msg, client_fd);
+            std::string msg = "客户端[" + std::to_string(conn_fd) + "]: " + buffer;
+            std::cout << msg<<std::endl;
+            broadcast(msg, conn_fd);
         }
-        else if (n == 0) {
-            std::lock_guard<std::mutex> lock(cout_mutex);
-            std::cout << "[INFO] 客户端 " << client_ip << ":" << client_port << " 断开连接" << std::endl;
+        else if (n == 0)
+        {
+            std::cout << "[INFO] 客户端 " << conn_fd << " 断开连接\n";
             break;
         }
-        else {
-            if (errno == EINTR) continue;
-            std::lock_guard<std::mutex> lock(cout_mutex);
-            std::cerr << "[ERROR] read 失败: " << strerror(errno) << " (errno=" << errno << ")\n";
+        else
+        {
+            std::cerr << "[ERROR] read失败: " << strerror(errno) << " (errno=" << errno << ")\n";
             break;
         }
-    }
-
-    close(client_fd);
+    } // 安全移除客户端
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
-        clients.erase(std::remove(clients.begin(), clients.end(), client_fd), clients.end());
+        clients.erase(std::remove(clients.begin(), clients.end(), conn_fd), clients.end());
     }
+    close(conn_fd);
+    std::cout << "[INFO] 关闭连接 fd=" << conn_fd << std::endl;
 }
-
-int main() {
-    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd == -1) {
-        std::cerr << "[ERROR] socket 创建失败: " << strerror(errno) << std::endl;
+int main()
+{
+    ThreadPool pool(4);
+    int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (listen_fd == -1)
+    {
+        std::cerr << "[FATAL] socket创建失败: " << strerror(errno) << std::endl;
         return 1;
     }
-
-    sockaddr_in serv_addr{};
+    sockaddr_in serv_addr;
+    memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(12345);
     serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    if (bind(server_fd, (sockaddr*)&serv_addr, sizeof(serv_addr)) == -1) {
-        std::cerr << "[ERROR] bind 失败: " << strerror(errno) << std::endl;
-        close(server_fd);
+    if (bind(listen_fd, (sockaddr *)&serv_addr, sizeof(serv_addr)) == -1)
+    {
+        std::cerr << "[FATAL] bind失败: " << strerror(errno) << std::endl;
         return 1;
     }
-
-    if (listen(server_fd, 5) == -1) {
-        std::cerr << "[ERROR] listen 失败: " << strerror(errno) << std::endl;
-        close(server_fd);
+    if (listen(listen_fd, 5) == -1)
+    {
+        std::cerr << "[FATAL] listen失败: " << strerror(errno) << std::endl;
         return 1;
     }
-
-    std::cout << "[INFO] 群聊服务器启动，等待连接..." << std::endl;
-
-    while (running) {
-        sockaddr_in client_addr{};
+    std::cout << "[INFO] 服务器启动，等待连接...\n";
+    while (true)
+    {
+        sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
-        int client_fd = accept(server_fd, (sockaddr*)&client_addr, &client_len);
-
-        if (client_fd == -1) {
-            if (errno == EINTR) continue;
-            std::cerr << "[ERROR] accept 失败: " << strerror(errno) << std::endl;
-            break;
+        int conn_fd = accept(listen_fd, (sockaddr *)&client_addr, &client_len);
+        if (conn_fd == -1)
+        {
+            std::cerr << "[ERROR] accept失败: " << strerror(errno) << " (errno=" << errno << ")\n";
+            continue;
         }
-
-        std::thread(handle_client, client_fd, client_addr).detach();
+        char client_ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
+        std::cout << "[INFO] 新客户端连接: " << client_ip << ":" << ntohs(client_addr.sin_port) << " (fd=" << conn_fd << ")\n";
+        {
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            clients.push_back(conn_fd);
+        }
+        pool.enqueue([conn_fd]{
+            handle_client(conn_fd);
+        });
     }
-
-    close(server_fd);
+    close(listen_fd);
     return 0;
 }
