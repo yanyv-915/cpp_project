@@ -1,0 +1,13 @@
+{
+    "server":{
+        "PORT":12345,
+        "HEART_BEAT":10,
+        "TIME_OUT":30,
+        "LEN":4
+    },
+    "client":{
+        "PORT":12345,
+        "SERVER_IP":"127.0.0.1",
+        "LEN":4
+    } 
+}
