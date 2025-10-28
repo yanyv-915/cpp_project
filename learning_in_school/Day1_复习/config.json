@@ -1,7 +1,7 @@
 {
     "server":{
         "PORT":12345,
-        "HEART_BEAT":15,
+        "HEART_BEAT":10,
         "TIME_OUT":30,
         "LEN":4
     },

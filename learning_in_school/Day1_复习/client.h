@@ -47,8 +47,6 @@ private:
             }
             else
             {
-                // if (string(buf, n) == "PONG")
-                //     continue;
                 msg.append(buf,n);
                 while(msg.size()>LEN){
                     memcpy(&len,msg.data(),LEN);
@@ -56,8 +54,9 @@ private:
                     if(msg.size()<len+LEN) break;
                     real_msg.resize(len);
                     memcpy(real_msg.data(),msg.data()+LEN,len);
-                    Logger::instance().log(Logger::INFO,real_msg);
                     msg.erase(0,len+LEN);
+                    if (real_msg.size() >= 4 &&real_msg.compare(real_msg.size() - 4, 4, "PONG") == 0) continue;
+                    Logger::instance().log(Logger::INFO,real_msg);
                 }
             }
         }
@@ -83,9 +82,10 @@ private:
     }
     void heart_beat()
     {
+        string m=process("PING");
         while (running)
         {
-            ssize_t n = write(server_fd, process("PING").data(), process("PING").size());
+            ssize_t n = write(server_fd, m.data(), m.size());
             if (n == -1 || n == 0)
             {
                 running = false;
@@ -119,6 +119,5 @@ public:
         connect(server_fd,(sockaddr*)&server_addr,sizeof(server_addr));
         Logger::instance().log(Logger::INFO,"成功与服务端连接");
         work();
-        if(!running) close(server_fd);
     }
 };

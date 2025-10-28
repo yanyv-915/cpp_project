@@ -107,6 +107,7 @@ private:
         while(!tasks_o.empty()){
             auto t=move(tasks_o.front());
             tasks_o.pop();
+            if(clients.find(t.recieve_fd)==clients.end()) continue;
             string& msg=clients[t.recieve_fd].msg;
             msg.append(t.msg);
             if(msg.size()>LEN){
@@ -144,6 +145,7 @@ private:
         {
             auto t = move(tasks_b.front());
             tasks_b.pop();
+            if(clients.find(t.send_fd)==clients.end()) continue;
             for (auto &[fd, c] : clients)
             {
                 if (fd == t.send_fd)
@@ -206,10 +208,11 @@ private:
         }
     }
     void handle_read(int fd){
+        unique_lock<mutex> lk(ct_mtx);
+        if(clients.find(fd)==clients.end()) return;
         char buf[MAX_BUF];
         uint32_t len;
         string real_msg;
-        string& packet=clients[fd].msg;
         while (true)
         {
             memset(buf,0,sizeof(buf));
@@ -220,27 +223,28 @@ private:
                     break;
                 perror("read");
                 Logger::instance().log(Logger::ERRNO, "客户端" + to_string(fd) + "异常断开");
+                lk.unlock();
                 del_fd(fd);
                 break;
             }
             else if (n == 0)
             {
                 Logger::instance().log(Logger::INFO, "客户端" + to_string(fd) + "断开连接");
+                lk.unlock();
                 del_fd(fd);
                 break;
             }
             else
             {
-                unique_lock<mutex> lk(ct_mtx);
                 clients[fd].last_active=time(0);
-                packet.append(buf,n);
-                while(packet.size()>LEN)
+                clients[fd].msg.append(buf,n);
+                while(clients[fd].msg.size()>LEN)
                 {
-                    memcpy(&len, packet.data(), LEN);
+                    memcpy(&len, clients[fd].msg.data(), LEN);
                     len = ntohl(len);
-                    if(packet.size()<len+LEN) break;
+                    if(clients[fd].msg.size()<len+LEN) break;
                     real_msg.resize(len);
-                    memcpy(real_msg.data(),packet.data()+LEN,len);
+                    memcpy(real_msg.data(),clients[fd].msg.data()+LEN,len);
                     lk.unlock();
                     pool.enqueue([this,fd,real_msg](){
                         if(real_msg=="PING"){
@@ -256,13 +260,15 @@ private:
                         }
                     });
                     lk.lock();
-                    packet.erase(0,LEN+len);
+                    if(clients.find(fd)==clients.end()) return;
+                    clients[fd].msg.erase(0,LEN+len);
                 }
             }
         }
     }
     void handle_write(int fd){
-        lock_guard<mutex> lk(ct_mtx);
+        unique_lock<mutex> lk(ct_mtx);
+        if(clients.find(fd)==clients.end()) return;
         auto& c=clients[fd];
         while (c.msg.size() > LEN)
         {
@@ -291,6 +297,7 @@ private:
                 {
                     perror("write");
                     Logger::instance().log(Logger::ERRNO, "客户端" + to_string(fd) + "异常断开");
+                    lk.unlock();
                     del_fd(fd);
                     break;
                 }
@@ -314,15 +321,15 @@ public:
                 continue;
             }
             for(int i=0;i<nfds;i++){
-                Logger::instance().log(Logger::DEBUG,"循环开始");
+                //Logger::instance().log(Logger::DEBUG,"循环开始");
                 int fd=events[i].data.fd;
                 if(fd==listen_fd){
-                    Logger::instance().log(Logger::DEBUG,"新连接");
+                    //Logger::instance().log(Logger::DEBUG,"新连接");
                     handle_new_connect();
                     continue;
                 }
                 if(fd==efd){
-                    Logger::instance().log(Logger::DEBUG,"新事件");
+                    //Logger::instance().log(Logger::DEBUG,"新事件");
                     uint64_t one;
                     while(read(efd,&one,sizeof(one))>0);
                     pool.enqueue([this](){
@@ -353,13 +360,15 @@ public:
                     continue;
                 }
                 if(events[i].events & EPOLLIN){
+                    //Logger::instance().log(Logger::DEBUG,"读事件");
                     handle_read(fd);
                 }
                 if(events[i].events & EPOLLOUT){
-                    Logger::instance().log(Logger::DEBUG,"有写事件");
+                    //Logger::instance().log(Logger::DEBUG,"有写事件");
+                    unique_lock<mutex> lk(ct_mtx);
                     handle_write(fd);
                 }
-                Logger::instance().log(Logger::DEBUG,"循环结束");
+                //Logger::instance().log(Logger::DEBUG,"循环结束");
             }
         }
     }

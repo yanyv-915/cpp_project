@@ -34,7 +34,9 @@ public:
         cfg.server.PORT=j["server"].value("PORT",12345);
         cfg.server.HEART_BEAT=j["server"].value("HEART_BEAT",8);
         cfg.server.TIME_OUT=j["server"].value("TIME_OUT",30);
+        cfg.server.LEN=j["server"].value("LEN",4);
         cfg.client.PORT=j["client"].value("PORT",12345);
         cfg.client.SERVER_IP=j["client"].value("SERVER_IP","127.0.0.1");
+        cfg.client.LEN=j["client"].value("LEN",4);
     }
 };
